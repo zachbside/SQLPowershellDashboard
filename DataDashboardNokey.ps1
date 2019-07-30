@@ -1,40 +1,66 @@
-﻿function messageSlack ($channel,$metric,$value) {
+function messageSlack ($channel,$metric,$value) {
     $percentOrValue = '%'
-    if ($metric -eq 'BatchesPerSec')
+    if ($metric -eq 'UserConnections')
         {$percentOrValue = ''}
-    $token=''
+    $token='x8'
     Send-SlackMessage -Token $token -Channel "$channel" -Text "The $metric is over the threshold. It is currently at $value$percentOrValue. Please resolve."
 }
 
 function loadCPUData ($dbname, $serverName, $instanceName, $user, $password) {
     $CpuLoad = (Get-WmiObject win32_processor | Measure-Object -property LoadPercentage -Average | Select Average ).Average
     $violationBit=0
-    if ($CpuLoad -gt 50) {$violationBit=1}
+    $Threshold = Invoke-Sqlcmd -Query "select Threshold from $dbname.dbo.Metrics where MetricID = 1" -ServerInstance "$serverName\$instanceName" -Username $user -Password $password
+    if ($CpuLoad -gt $Threshold[0]) {$violationBit=1}
     Invoke-Sqlcmd -Query "insert into $dbname.dbo.CurrentMetric values (1,$CpuLoad,$violationBit)" -ServerInstance "$serverName\$instanceName" -Username $user -Password $password
 }
 
-function gatherDisplayData ($metricID, $serverName, $instanceName, $userName, $password) {
-    $Results = Invoke-Sqlcmd -Query "select CM.Value, CM.ViolationBit,  M.MetricName, C.ContactName from dbo.CurrentMetric CM inner join Metrics M on M.MetricID=CM.MetricId inner join Contacts C on M.ContactID=C.ContactID where CM.MetricID=$metricID"  -ServerInstance "$serverName\$instanceName" -Username $userName -Password $password 
+function gatherDisplayData ($metricID, $dbname, $serverName, $instanceName, $userName, $password) {
+    $Results = Invoke-Sqlcmd -Query "select CM.Value, CM.ViolationBit,  M.MetricName, C.ContactName 
+                                     from $dbname.dbo.CurrentMetric CM 
+                                     inner join $dbname.dbo.Metrics M on M.MetricID=CM.MetricId 
+                                     inner join $dbname.dbo.Contacts C on M.ContactID=C.ContactID 
+                                     where CM.MetricID=$metricID"  -ServerInstance "$serverName\$instanceName" -Username $userName -Password $password 
     $Metric = $Results[2]
     $Value = $Results[0]
-    echo "-$Metric-"
-    echo "$Value/n"
     #if the violation detection bit is set to true, message the sysadmin channel on slack
     if ($Results[1] -eq 1) {
         messageSlack -channel $Results[3] -metric $Results[2] -value $Results[0] > $null
+        $ErrorDate = Invoke-Sqlcmd -Query "select Date from $dbname.dbo.Violations where MetricID=$metricID" -ServerInstance "$serverName\$instanceName" -Username $user -Password $password
+        $ErrorDate=$ErrorDate[0]
+        Write-Host -ForegroundColor Red "- $Metric - Currently in violation beginning at $ErrorDate"
+        echo "$Value`n"
         }
+    else {
+        echo "- $Metric -"
+        echo "$Value`n"
+    }
+}
+
+function gatherLatestViolation ($metricID, $dbname, $serverName, $instanceName, $userName, $password) {
+    $Results = Invoke-Sqlcmd -Query "select TOP 1 MR.Date, M.MetricName 
+                                    from $dbname.dbo.Metrics_Repo MR
+                                    inner join $dbname.dbo.Metrics M on M.MetricID = MR.MetricID
+                                    where MR.MetricID=$metricID 
+                                    and value > M.Threshold 
+                                    order by MR.Date desc" -ServerInstance "$serverName\$instanceName" -Username $userName -Password $password
+    if ($Results) {
+    $DateOfViolation = $Results[0]
+    echo "Last violation occured on $DateOfViolation"
+    }
 }
 
 function displayData ($dbname, $serverName, $instanceName, $user, $password) {
     #run stored procedure that gathers all of the statistics for memory and batches
     Invoke-Sqlcmd -Query "exec $dbname.[dbo].[GatherMetrics]" -ServerInstance "$serverName\$instanceName" -Username $user -Password $password
     #clear the shell to make the dashboard appear to refresh instantly
-    #clear
-    $numOfMetrics = Invoke-Sqlcmd -Query "select count(*) from dbo.CurrentMetric" -ServerInstance "$serverName\$instanceName" -Username $user -Password $password
+    clear
+    $numOfMetrics = Invoke-Sqlcmd -Query "select count(*) from $dbname.dbo.CurrentMetric" -ServerInstance "$serverName\$instanceName" -Username $user -Password $password
     $numOfMetricsCounter = [int]$numOfMetrics[0]
     while ($numOfMetricsCounter -gt 0)
         { 
-            gatherDisplayData $numOfMetricsCounter $serverName $instanceName -userName $user $password
+            gatherDisplayData $numOfMetricsCounter $dbname $serverName $instanceName -userName $user $password
+            gatherLatestViolation $numOfMetricsCounter $dbname $serverName $instanceName -userName $user $password
+            echo "-------------------------"
             $numOfMetricsCounter-- 
         }
     
