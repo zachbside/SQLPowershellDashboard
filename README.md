@@ -13,6 +13,6 @@ To start the application, run the DataDashboard.ps1 file using PowerShell. This 
 # Possible Improvements
 1. User interface could be improved to not use command line output
 2. Use more stored procedures instead of ad-hoc querying through PowerShell
-3. Graphically display the history data to find 
-4. Supress the noise on slack once the error has cleared
+3. Graphically display the history data to find trends
+4. Supress the noise on Slack once the error has cleared
 5. More robust history display (data is there, visualization is not)
