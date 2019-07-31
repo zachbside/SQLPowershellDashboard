@@ -40,5 +40,6 @@ CREATE TABLE dbo.CurrentMetric (
   insert into metrics values (2,'Memory',1, 85)
   insert into metrics values (3,'UserConnections',1,15)
   
+use [master]
   --allow user to view the dmvs
   grant view server state to tester
