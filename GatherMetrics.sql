@@ -12,7 +12,7 @@ go
 -- Create date: 7/25/2019       
 -- Description:  Stored procedure used to gather metrics on the local SQL server       
 -- =============================================       
-ALTER PROCEDURE [dbo].[Gathermetrics] 
+CREATE PROCEDURE [dbo].[Gathermetrics] 
 AS 
   BEGIN 
       SET nocount ON; 
